@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { User, Project, ProjectStatus, TranscriptionResult } from '@/types';
 import { 
   UploadCloud, Clock, FileText, FileVideo, Download, Loader2, 
-  Users, Mic, PlayCircle, Trash2, CheckCircle, AlertCircle, Cloud
+  Users, Mic, PlayCircle, Trash2, CheckCircle, AlertCircle, Cloud, RefreshCw
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -53,10 +53,29 @@ const Dashboard: React.FC<DashboardProps> = ({ user }) => {
     return Array.from(speakers).sort(); 
   }, [selectedProject]);
 
-  // Load projects on mount
+  // Load projects on mount and reset stuck PROCESSING projects
   useEffect(() => {
-    loadProjects();
+    const initialize = async () => {
+      await loadProjects();
+    };
+    initialize();
   }, [user.id]);
+
+  // Reset any stuck PROCESSING projects to QUEUED on page load
+  useEffect(() => {
+    const resetStuckProjects = async () => {
+      const stuckProjects = projects.filter(p => p.status === ProjectStatus.PROCESSING);
+      for (const project of stuckProjects) {
+        await updateProject(project.id, { status: ProjectStatus.QUEUED });
+        setProjects(prev => prev.map(p => 
+          p.id === project.id ? { ...p, status: ProjectStatus.QUEUED } : p
+        ));
+      }
+    };
+    if (!loading && projects.length > 0) {
+      resetStuckProjects();
+    }
+  }, [loading]); // Only run once after initial load
 
   // Queue processing
   useEffect(() => {
@@ -171,6 +190,15 @@ const Dashboard: React.FC<DashboardProps> = ({ user }) => {
     } finally {
       setProgressText('');
     }
+  };
+
+  const handleRetryProject = async (e: React.MouseEvent, project: Project) => {
+    e.stopPropagation();
+    // Reset to QUEUED so it gets picked up by the queue processor
+    await updateProject(project.id, { status: ProjectStatus.QUEUED });
+    setProjects(prev => prev.map(p => 
+      p.id === project.id ? { ...p, status: ProjectStatus.QUEUED } : p
+    ));
   };
 
   const handleDeleteProject = async (e: React.MouseEvent, project: Project) => {
@@ -375,14 +403,27 @@ const Dashboard: React.FC<DashboardProps> = ({ user }) => {
                             </span>
                           </div>
                         </div>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={(e) => handleDeleteProject(e, p)}
-                          className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
+                        <div className="flex items-center gap-1">
+                          {p.status === ProjectStatus.ERROR && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={(e) => handleRetryProject(e, p)}
+                              className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-primary"
+                              title="Retry transcription"
+                            >
+                              <RefreshCw className="w-4 h-4" />
+                            </Button>
+                          )}
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={(e) => handleDeleteProject(e, p)}
+                            className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        </div>
                       </div>
                     ))}
                   </div>
