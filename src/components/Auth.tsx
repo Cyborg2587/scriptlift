@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { PasswordField } from '@/components/auth/PasswordField';
 
 interface AuthProps {
   onLogin: () => void;
@@ -164,13 +165,13 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
                       </button>
                     )}
                   </div>
-                  <Input
+                  <PasswordField
                     id="password"
-                    type="password"
                     required
                     value={password}
-                    onChange={(e) => setPassword(e.target.value)}
+                    onChange={setPassword}
                     placeholder="••••••••"
+                    disabled={loading}
                   />
                 </div>
               )}
