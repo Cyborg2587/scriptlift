@@ -1,14 +1,42 @@
 import { TranscriptionSegment } from "@/types";
 
+const TARGET_SAMPLE_RATE = 16000;
+
+const withTimeout = async <T>(
+  promise: Promise<T>,
+  ms: number,
+  message: string
+): Promise<T> => {
+  return await new Promise<T>((resolve, reject) => {
+    const timeoutId = setTimeout(() => reject(new Error(message)), ms);
+    promise.then(
+      (value) => {
+        clearTimeout(timeoutId);
+        resolve(value);
+      },
+      (err) => {
+        clearTimeout(timeoutId);
+        reject(err);
+      }
+    );
+  });
+};
+
 // Web Worker code for Whisper transcription - using classic worker syntax with importScripts
 const WORKER_CODE = `
-importScripts('https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2/dist/transformers.min.js');
+// Prefer locally-hosted copy (more reliable than a CDN inside workers)
+try {
+  importScripts(self.location.origin + '/vendor/transformers.min.js');
+} catch (e) {
+  importScripts('https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2/dist/transformers.min.js');
+}
 
 // Access the library from global scope (classic workers)
 const { pipeline, env } = self.Transformers || {};
 
 if (!pipeline) {
   self.postMessage({ status: 'error', error: 'Failed to load Transformers library' });
+  throw new Error('Failed to load Transformers library');
 }
 
 env.allowLocalModels = false;
@@ -91,6 +119,8 @@ const createWorker = (): Worker => {
   const workerUrl = URL.createObjectURL(blob);
   // Use classic worker (not module) for importScripts compatibility
   const newWorker = new Worker(workerUrl);
+  // Safe to revoke after worker is created
+  URL.revokeObjectURL(workerUrl);
   return newWorker;
 };
 
@@ -109,7 +139,7 @@ const getOrCreateWorker = (): Worker => {
     
     // Add global error handler
     worker.onerror = (e) => {
-      console.error('Whisper Worker error:', e.message);
+      console.error('Whisper Worker error:', e);
       resetWorker();
     };
   }
@@ -157,7 +187,56 @@ const initializeWorker = (onProgress: (status: string) => void): Promise<void> =
   return workerReadyPromise;
 };
 
-// Decode and resample audio to 16000Hz (required by Whisper)
+const downmixToMono = (buffer: AudioBuffer): Float32Array => {
+  if (buffer.numberOfChannels === 1) return buffer.getChannelData(0);
+
+  const length = buffer.length;
+  const out = new Float32Array(length);
+
+  for (let ch = 0; ch < buffer.numberOfChannels; ch++) {
+    const data = buffer.getChannelData(ch);
+    for (let i = 0; i < length; i++) out[i] += data[i];
+  }
+  for (let i = 0; i < length; i++) out[i] /= buffer.numberOfChannels;
+  return out;
+};
+
+// Fast JS downsampler (avoids OfflineAudioContext hanging on long files)
+const downsampleBuffer = (
+  input: Float32Array,
+  inputSampleRate: number,
+  outputSampleRate: number
+): Float32Array => {
+  if (inputSampleRate === outputSampleRate) return input;
+  if (inputSampleRate < outputSampleRate) {
+    // Upsampling is rare for typical media; keep behavior explicit.
+    throw new Error('Unsupported audio sample rate. Please convert to MP3/WAV and try again.');
+  }
+
+  const ratio = inputSampleRate / outputSampleRate;
+  const outputLength = Math.round(input.length / ratio);
+  const output = new Float32Array(outputLength);
+
+  let outputOffset = 0;
+  let inputOffset = 0;
+
+  while (outputOffset < outputLength) {
+    const nextInputOffset = Math.round((outputOffset + 1) * ratio);
+    let sum = 0;
+    let count = 0;
+    for (let i = inputOffset; i < nextInputOffset && i < input.length; i++) {
+      sum += input[i];
+      count++;
+    }
+    output[outputOffset] = count ? sum / count : input[inputOffset] ?? 0;
+    outputOffset++;
+    inputOffset = nextInputOffset;
+  }
+
+  return output;
+};
+
+// Decode and resample audio to 16kHz (required by Whisper)
 const getAudioData = async (file: File, onProgress: (status: string) => void): Promise<Float32Array> => {
   try {
     onProgress("Reading audio file...");
@@ -166,24 +245,28 @@ const getAudioData = async (file: File, onProgress: (status: string) => void): P
     onProgress("Decoding audio...");
     const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
     
-    const decoded = await audioCtx.decodeAudioData(arrayBuffer);
-    
-    onProgress("Resampling to 16kHz...");
-    const offlineCtx = new OfflineAudioContext(1, decoded.duration * 16000, 16000);
-    const source = offlineCtx.createBufferSource();
-    source.buffer = decoded;
-    source.connect(offlineCtx.destination);
-    source.start();
-    
-    const resampled = await offlineCtx.startRendering();
-    
+    const decoded = await withTimeout<AudioBuffer>(
+      audioCtx.decodeAudioData(arrayBuffer) as Promise<AudioBuffer>,
+      5 * 60 * 1000,
+      'Audio decoding timed out. Please try a smaller file or convert to MP3/WAV.'
+    );
+
+    onProgress("Preparing audio...");
+    const mono = downmixToMono(decoded);
+
+    onProgress("Downsampling to 16kHz...");
+    const downsampled = downsampleBuffer(mono, decoded.sampleRate, TARGET_SAMPLE_RATE);
+
     // Close audio context to free resources
     await audioCtx.close();
-    
-    return resampled.getChannelData(0);
+
+    return downsampled;
   } catch (err: any) {
     console.error("Audio decoding failed:", err);
-    throw new Error("Could not decode audio file. It might be corrupt or an unsupported format. Try converting to MP3 or WAV.");
+    throw new Error(
+      err?.message ||
+        "Could not decode this audio in your browser. If it's long, try splitting it into smaller parts (10–20 minutes) or converting to MP3/WAV."
+    );
   }
 };
 
@@ -199,13 +282,19 @@ export const transcribeWithWhisper = async (
     
     // Process audio
     const audioData = await getAudioData(file, onProgress);
+    const audioSeconds = audioData.length / TARGET_SAMPLE_RATE;
     
     // Run transcription
     return new Promise((resolve, reject) => {
-      // Timeout for transcription (30 minutes for very long files)
+      // Dynamic timeout: keep long-form audio from being killed prematurely,
+      // while still preventing infinite hangs.
+      const timeoutMs = Math.min(
+        6 * 60 * 60 * 1000,
+        Math.max(30 * 60 * 1000, Math.round(audioSeconds * 20 * 1000))
+      );
       const timeout = setTimeout(() => {
-        reject(new Error('Transcription timed out. The file may be too long.'));
-      }, 30 * 60 * 1000);
+        reject(new Error('Transcription timed out. The file may be too long for in-browser processing.'));
+      }, timeoutMs);
       
       const handler = (e: MessageEvent) => {
         const { status, message, output, error } = e.data;

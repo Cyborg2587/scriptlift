@@ -11,15 +11,18 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { downloadPdf, downloadTxt, downloadDoc } from '@/services/exportService';
 import { transcribeWithWhisper } from '@/services/whisperService';
+import { cn } from '@/lib/utils';
 import { 
   createProject, 
   getProjects, 
   updateProject, 
   deleteProject as deleteProjectService,
   uploadFileToStorage, 
-  getFileUrl, 
   downloadFile 
 } from '@/services/projectService';
+
+const STORAGE_LIMIT_BYTES = 1024 * 1024 * 1024; // 1GB
+const STUCK_PROCESSING_AFTER_MS = 30 * 60 * 1000; // 30 minutes
 
 interface DashboardProps {
   user: User;
@@ -36,6 +39,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user }) => {
   const [showTimestamps, setShowTimestamps] = useState(true);
   const [showSpeakers, setShowSpeakers] = useState(true);
   const [loading, setLoading] = useState(true);
+  const [projectErrors, setProjectErrors] = useState<Record<string, string>>({});
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const mediaRef = useRef<HTMLMediaElement>(null);
@@ -64,7 +68,11 @@ const Dashboard: React.FC<DashboardProps> = ({ user }) => {
   // Reset any stuck PROCESSING projects to QUEUED on page load
   useEffect(() => {
     const resetStuckProjects = async () => {
-      const stuckProjects = projects.filter(p => p.status === ProjectStatus.PROCESSING);
+      const stuckProjects = projects.filter((p) => {
+        if (p.status !== ProjectStatus.PROCESSING) return false;
+        const updatedAt = new Date(p.updated_at).getTime();
+        return Number.isFinite(updatedAt) && Date.now() - updatedAt > STUCK_PROCESSING_AFTER_MS;
+      });
       for (const project of stuckProjects) {
         await updateProject(project.id, { status: ProjectStatus.QUEUED });
         setProjects(prev => prev.map(p => 
@@ -97,13 +105,39 @@ const Dashboard: React.FC<DashboardProps> = ({ user }) => {
       if (mediaUrl) URL.revokeObjectURL(mediaUrl);
       setMediaUrl(null);
       if (selectedProject?.storage_path) {
-        const url = await getFileUrl(selectedProject.storage_path);
-        if (url && active) setMediaUrl(url);
+        try {
+          const blob = await downloadFile(selectedProject.storage_path);
+          if (!blob) return;
+          const url = URL.createObjectURL(blob);
+          if (active) setMediaUrl(url);
+        } catch (e) {
+          console.error('Failed to load media:', e);
+        }
       }
     };
     loadMedia();
     return () => { active = false; };
   }, [selectedProjectId, selectedProject?.storage_path]);
+
+  const usedStorageBytes = useMemo(() => {
+    return projects.reduce((sum, p) => sum + (p.file_size || 0), 0);
+  }, [projects]);
+
+  const getUniqueDisplayName = (name: string, usedNames: Set<string>) => {
+    if (!usedNames.has(name)) return name;
+
+    const dot = name.lastIndexOf('.');
+    const base = dot > 0 ? name.slice(0, dot) : name;
+    const ext = dot > 0 ? name.slice(dot) : '';
+
+    let n = 2;
+    let candidate = `${base} (${n})${ext}`;
+    while (usedNames.has(candidate)) {
+      n++;
+      candidate = `${base} (${n})${ext}`;
+    }
+    return candidate;
+  };
 
   const loadProjects = async () => {
     try {
@@ -125,16 +159,30 @@ const Dashboard: React.FC<DashboardProps> = ({ user }) => {
   const handleIncomingFiles = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
 
+    let runningUsedBytes = usedStorageBytes;
+    const usedNames = new Set(projects.map((p) => p.file_name));
+
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
       try {
-        setProgressText(`Uploading ${file.name}...`);
+        if (runningUsedBytes + file.size > STORAGE_LIMIT_BYTES) {
+          alert(
+            `Upload blocked: your account is limited to 1GB of total storage.\n\nPlease delete some files before uploading more.`
+          );
+          continue;
+        }
+
+        const displayName = getUniqueDisplayName(file.name, usedNames);
+        usedNames.add(displayName);
+
+        setProgressText(`Uploading ${displayName}...`);
         const storagePath = await uploadFileToStorage(file, user.id);
         const isVideo = file.type.startsWith('video/') || file.name.match(/\.(mp4|mov|avi|mkv|webm)$/i);
         const fileType = file.type || (isVideo ? 'video/mp4' : 'audio/mp3');
         
-        const newProject = await createProject(user.id, file.name, fileType, storagePath, file.size);
+        const newProject = await createProject(user.id, displayName, fileType, storagePath, file.size);
         setProjects(prev => [newProject, ...prev]);
+        runningUsedBytes += file.size;
         
         if (!selectedProjectId) {
           setSelectedProjectId(newProject.id);
@@ -149,6 +197,11 @@ const Dashboard: React.FC<DashboardProps> = ({ user }) => {
 
   const processProject = async (project: Project) => {
     try {
+      setProjectErrors((prev) => {
+        const { [project.id]: _removed, ...rest } = prev;
+        return rest;
+      });
+
       // Update status to processing
       await updateProject(project.id, { status: ProjectStatus.PROCESSING });
       setProjects(prev => prev.map(p => 
@@ -184,6 +237,10 @@ const Dashboard: React.FC<DashboardProps> = ({ user }) => {
     } catch (error: any) {
       console.error(`Error processing ${project.file_name}:`, error);
       await updateProject(project.id, { status: ProjectStatus.ERROR });
+      setProjectErrors((prev) => ({
+        ...prev,
+        [project.id]: error?.message || 'Processing failed',
+      }));
       setProjects(prev => prev.map(p => 
         p.id === project.id ? { ...p, status: ProjectStatus.ERROR } : p
       ));
@@ -194,6 +251,10 @@ const Dashboard: React.FC<DashboardProps> = ({ user }) => {
 
   const handleRetryProject = async (e: React.MouseEvent, project: Project) => {
     e.stopPropagation();
+    setProjectErrors((prev) => {
+      const { [project.id]: _removed, ...rest } = prev;
+      return rest;
+    });
     // Reset to QUEUED so it gets picked up by the queue processor
     await updateProject(project.id, { status: ProjectStatus.QUEUED });
     setProjects(prev => prev.map(p => 
@@ -276,7 +337,16 @@ const Dashboard: React.FC<DashboardProps> = ({ user }) => {
   }
 
   return (
-    <div className="flex-grow flex flex-col pb-24">
+    <div
+      className={cn(
+        'flex-grow flex flex-col',
+        selectedProject && mediaUrl
+          ? selectedProject.file_type.startsWith('video/')
+            ? 'pb-[24rem] sm:pb-[28rem] md:pb-[38rem]'
+            : 'pb-28'
+          : 'pb-0'
+      )}
+    >
       <div className="max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-6 flex-grow">
         {/* Header */}
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
@@ -498,7 +568,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user }) => {
                 </CardTitle>
               </CardHeader>
               
-              <CardContent className="flex-grow overflow-y-auto p-4 space-y-3" ref={transcriptContainerRef}>
+              <CardContent className="flex-grow overflow-y-auto p-4">
+                <div className="space-y-3" ref={transcriptContainerRef}>
                 {!selectedProject && (
                   <div className="h-full flex flex-col items-center justify-center text-muted-foreground">
                     <FileText className="w-16 h-16 mb-4 opacity-20" />
@@ -526,7 +597,9 @@ const Dashboard: React.FC<DashboardProps> = ({ user }) => {
                   <div className="h-full flex flex-col items-center justify-center text-destructive">
                     <AlertCircle className="w-12 h-12 mb-4" />
                     <p className="font-medium">Processing Failed</p>
-                    <p className="text-sm">Please try uploading again.</p>
+                    <p className="text-sm text-center max-w-md">
+                      {projectErrors[selectedProject.id] || 'Please try uploading again.'}
+                    </p>
                   </div>
                 )}
 
@@ -571,6 +644,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user }) => {
                     </div>
                   );
                 })}
+                </div>
               </CardContent>
             </Card>
           </div>
@@ -580,8 +654,9 @@ const Dashboard: React.FC<DashboardProps> = ({ user }) => {
       {/* Fixed Bottom Player */}
       {selectedProject && mediaUrl && (
         <div className="fixed bottom-0 left-0 right-0 z-50 bg-card border-t border-border shadow-lg">
-          <div className="max-w-7xl mx-auto px-4 py-3 flex items-center gap-4">
-            <div className="flex items-center gap-3 w-64 shrink-0">
+          <div className="max-w-7xl mx-auto px-4 py-3">
+            <div className="flex flex-col gap-3 md:flex-row md:items-center md:gap-4">
+              <div className="flex items-center gap-3 md:w-64 md:shrink-0">
               <div className="p-2 bg-primary/10 rounded-lg">
                 {selectedProject.file_type.startsWith('video/') 
                   ? <FileVideo className="w-5 h-5 text-primary" /> 
@@ -600,24 +675,27 @@ const Dashboard: React.FC<DashboardProps> = ({ user }) => {
                 </button>
               </div>
             </div>
-            <div className="flex-grow">
-              {selectedProject.file_type.startsWith('video/') ? (
-                <video 
-                  ref={mediaRef as React.RefObject<HTMLVideoElement>}
-                  src={mediaUrl} 
-                  controls 
-                  className="w-full h-12"
-                  onTimeUpdate={(e) => setCurrentTime(e.currentTarget.currentTime)}
-                />
-              ) : (
-                <audio 
-                  ref={mediaRef as React.RefObject<HTMLAudioElement>}
-                  src={mediaUrl} 
-                  controls 
-                  className="w-full h-10"
-                  onTimeUpdate={(e) => setCurrentTime(e.currentTarget.currentTime)}
-                />
-              )}
+              <div className="flex-1">
+                {selectedProject.file_type.startsWith('video/') ? (
+                  <video
+                    ref={mediaRef as React.RefObject<HTMLVideoElement>}
+                    src={mediaUrl}
+                    controls
+                    playsInline
+                    preload="metadata"
+                    className="w-full h-[240px] sm:h-[320px] md:h-[500px] rounded-md bg-muted object-contain"
+                    onTimeUpdate={(e) => setCurrentTime(e.currentTarget.currentTime)}
+                  />
+                ) : (
+                  <audio
+                    ref={mediaRef as React.RefObject<HTMLAudioElement>}
+                    src={mediaUrl}
+                    controls
+                    className="w-full"
+                    onTimeUpdate={(e) => setCurrentTime(e.currentTarget.currentTime)}
+                  />
+                )}
+              </div>
             </div>
           </div>
         </div>
