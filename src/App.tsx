@@ -20,10 +20,11 @@ const AppContent = () => {
     // Get initial session
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session?.user) {
+        const email = session.user.email ?? '';
         setUser({
           id: session.user.id,
-          email: session.user.email!,
-          name: session.user.user_metadata.name || session.user.email!.split('@')[0],
+          email,
+          name: session.user.user_metadata?.name || email.split('@')[0] || 'User',
         });
       }
       setLoading(false);
@@ -32,10 +33,11 @@ const AppContent = () => {
     // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       if (session?.user) {
+        const email = session.user.email ?? '';
         setUser({
           id: session.user.id,
-          email: session.user.email!,
-          name: session.user.user_metadata.name || session.user.email!.split('@')[0],
+          email,
+          name: session.user.user_metadata?.name || email.split('@')[0] || 'User',
         });
       } else {
         setUser(null);

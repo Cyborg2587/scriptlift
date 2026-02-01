@@ -9,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { StorageMeter } from '@/components/StorageMeter';
 import { downloadPdf, downloadTxt, downloadDoc } from '@/services/exportService';
 import { transcribeWithWhisper } from '@/services/whisperService';
 import { cn } from '@/lib/utils';
@@ -415,6 +416,12 @@ const Dashboard: React.FC<DashboardProps> = ({ user }) => {
                 </div>
               </CardContent>
             </Card>
+
+            {/* Storage Meter */}
+            <StorageMeter
+              usedBytes={usedStorageBytes}
+              limitBytes={STORAGE_LIMIT_BYTES}
+            />
 
             {/* Project List */}
             <Card className="overflow-hidden">
