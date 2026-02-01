@@ -88,7 +88,7 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      get_user_storage_bytes: { Args: { p_user_id: string }; Returns: number }
     }
     Enums: {
       [_ in never]: never
