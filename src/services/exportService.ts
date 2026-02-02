@@ -2,6 +2,16 @@ import { TranscriptionResult } from "@/types";
 
 declare const jspdf: any;
 
+// HTML escape function to prevent HTML injection in exported documents
+const escapeHtml = (text: string): string => {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+};
+
 const formatTime = (seconds: number): string => {
   const h = Math.floor(seconds / 3600);
   const m = Math.floor((seconds % 3600) / 60);
@@ -102,10 +112,13 @@ export const downloadDoc = (
   showSpeakers: boolean,
   speakerMap: Record<string, string>
 ) => {
+  // Escape user-controlled data to prevent HTML injection
+  const safeFileName = escapeHtml(data.fileName);
+  
   const header = `
     <html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
-    <head><meta charset='utf-8'><title>${data.fileName}</title></head><body>
-    <h1 style="font-family: Arial, sans-serif;">Transcript: ${data.fileName}</h1>
+    <head><meta charset='utf-8'><title>${safeFileName}</title></head><body>
+    <h1 style="font-family: Arial, sans-serif;">Transcript: ${safeFileName}</h1>
     <p style="color:gray; font-size: 10pt; font-family: Arial, sans-serif;">Date: ${new Date(data.date).toLocaleString()}</p>
     <br/>
   `;
@@ -117,10 +130,12 @@ export const downloadDoc = (
       line += `<span style='color: #666; font-size: 9pt; font-family: monospace; margin-right: 8px;'>[${formatTime(seg.timestamp)}]</span>`;
     }
     if (showSpeakers) {
-      const name = speakerMap[seg.speaker] || seg.speaker;
-      line += `<b style='color: #4f46e5; margin-right: 4px;'>${name}:</b> `;
+      const rawName = speakerMap[seg.speaker] || seg.speaker;
+      const safeName = escapeHtml(rawName);
+      line += `<b style='color: #4f46e5; margin-right: 4px;'>${safeName}:</b> `;
     }
-    line += `<span style='color: #111;'>${seg.text}</span></p>`;
+    // Escape transcription text as well for defense-in-depth
+    line += `<span style='color: #111;'>${escapeHtml(seg.text)}</span></p>`;
     body += line;
   });
 
