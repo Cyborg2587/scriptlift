@@ -22,24 +22,9 @@ const withTimeout = async <T>(
   });
 };
 
-// Web Worker code for Whisper transcription - using classic worker syntax with importScripts
+// Web Worker code for Whisper transcription - using ES module worker
 const WORKER_CODE = `
-// Use locally-hosted copy only (no CDN fallback for security)
-// The local file at /vendor/transformers.min.js must be kept up-to-date
-try {
-  importScripts(self.location.origin + '/vendor/transformers.min.js');
-} catch (e) {
-  self.postMessage({ status: 'error', error: 'Failed to load local Transformers library. Please ensure /vendor/transformers.min.js exists.' });
-  throw new Error('Local Transformers library not found');
-}
-
-// Access the library from global scope (classic workers)
-const { pipeline, env } = self.Transformers || {};
-
-if (!pipeline) {
-  self.postMessage({ status: 'error', error: 'Failed to load Transformers library' });
-  throw new Error('Failed to load Transformers library');
-}
+import { pipeline, env } from 'https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2';
 
 env.allowLocalModels = false;
 env.useBrowserCache = true;
@@ -119,8 +104,8 @@ let workerReady = false;
 const createWorker = (): Worker => {
   const blob = new Blob([WORKER_CODE], { type: 'application/javascript' });
   const workerUrl = URL.createObjectURL(blob);
-  // Use classic worker (not module) for importScripts compatibility
-  const newWorker = new Worker(workerUrl);
+  // Use module worker for ES module imports
+  const newWorker = new Worker(workerUrl, { type: 'module' });
   // Safe to revoke after worker is created
   URL.revokeObjectURL(workerUrl);
   return newWorker;
