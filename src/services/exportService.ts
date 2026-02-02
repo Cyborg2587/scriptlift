@@ -1,6 +1,5 @@
 import { TranscriptionResult } from "@/types";
-
-declare const jspdf: any;
+import jsPDF from "jspdf";
 
 // HTML escape function to prevent HTML injection in exported documents
 const escapeHtml = (text: string): string => {
@@ -40,9 +39,11 @@ export const downloadTxt = (
       const name = speakerMap[seg.speaker] || seg.speaker;
       line += `${name}: `;
     }
-    line += `${seg.text}\n`;
+  line += `${seg.text}\n`;
     content += line;
   });
+
+  content += `\n\n---\nGenerated with ScriptLift by Danny Avila`;
 
   const blob = new Blob([content], { type: "text/plain" });
   const url = URL.createObjectURL(blob);
@@ -61,7 +62,6 @@ export const downloadPdf = (
   showSpeakers: boolean,
   speakerMap: Record<string, string>
 ) => {
-  const { jsPDF } = jspdf;
   const doc = new jsPDF();
 
   const margin = 20;
@@ -103,6 +103,12 @@ export const downloadPdf = (
     y += splitText.length * 6 + 2;
   });
 
+  // Add footer
+  const footerY = pageHeight - 10;
+  doc.setFontSize(8);
+  doc.setTextColor(150);
+  doc.text("Generated with ScriptLift by Danny Avila", margin, footerY);
+
   doc.save(`${data.fileName.split('.')[0]}_transcript.pdf`);
 };
 
@@ -138,6 +144,8 @@ export const downloadDoc = (
     line += `<span style='color: #111;'>${escapeHtml(seg.text)}</span></p>`;
     body += line;
   });
+
+  body += "<br/><br/><p style='color: #999; font-size: 9pt; font-family: Arial, sans-serif; border-top: 1px solid #ddd; padding-top: 12px; margin-top: 24px;'>Generated with ScriptLift by Danny Avila</p>";
 
   const footer = "</body></html>";
   const sourceHTML = header + body + footer;

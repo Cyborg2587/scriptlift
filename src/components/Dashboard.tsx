@@ -374,16 +374,19 @@ const Dashboard: React.FC<DashboardProps> = ({ user }) => {
           </div>
           
           {selectedProject?.status === ProjectStatus.COMPLETED && (
-            <div className="flex gap-2 flex-wrap">
-              <Button variant="outline" size="sm" onClick={() => handleExport('txt')}>
-                <FileText className="w-4 h-4 mr-1" /> TXT
-              </Button>
-              <Button variant="outline" size="sm" onClick={() => handleExport('doc')}>
-                <FileText className="w-4 h-4 mr-1" /> Word
-              </Button>
-              <Button size="sm" onClick={() => handleExport('pdf')}>
-                <Download className="w-4 h-4 mr-1" /> PDF
-              </Button>
+            <div className="flex flex-col gap-1">
+              <span className="text-xs text-muted-foreground font-medium">Download</span>
+              <div className="flex gap-2 flex-wrap">
+                <Button variant="outline" size="sm" onClick={() => handleExport('txt')}>
+                  <FileText className="w-4 h-4 mr-1" /> TXT
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => handleExport('doc')}>
+                  <FileText className="w-4 h-4 mr-1" /> Word
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => handleExport('pdf')}>
+                  <Download className="w-4 h-4 mr-1" /> PDF
+                </Button>
+              </div>
             </div>
           )}
         </div>
