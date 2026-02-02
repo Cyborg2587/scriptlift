@@ -2,6 +2,7 @@ import React from 'react';
 import { User } from '@/types';
 import { LogOut, FileText, LayoutDashboard } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { ThemeToggle } from '@/components/ThemeToggle';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -33,7 +34,8 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout }) => {
             )}
           </div>
           
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2">
+            <ThemeToggle />
             {user && (
               <>
                 <div className="hidden sm:flex flex-col items-end mr-2">
