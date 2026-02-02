@@ -29,6 +29,8 @@ interface DashboardProps {
   user: User;
 }
 
+type VideoSize = 'small' | 'medium' | 'large';
+
 const Dashboard: React.FC<DashboardProps> = ({ user }) => {
   const [projects, setProjects] = useState<Project[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
@@ -39,8 +41,9 @@ const Dashboard: React.FC<DashboardProps> = ({ user }) => {
   const [currentTime, setCurrentTime] = useState(0);
   const [showTimestamps, setShowTimestamps] = useState(true);
   const [showSpeakers, setShowSpeakers] = useState(true);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [projectErrors, setProjectErrors] = useState<Record<string, string>>({});
+  const [videoSize, setVideoSize] = useState<VideoSize>('large');
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const mediaRef = useRef<HTMLMediaElement>(null);
@@ -337,15 +340,26 @@ const Dashboard: React.FC<DashboardProps> = ({ user }) => {
     );
   }
 
+  // Calculate video preview dimensions based on size
+  const getVideoPreviewSize = () => {
+    switch (videoSize) {
+      case 'small':
+        return 'w-40 h-24 sm:w-48 sm:h-28';
+      case 'medium':
+        return 'w-64 h-40 sm:w-80 sm:h-48';
+      case 'large':
+      default:
+        return 'w-80 h-48 sm:w-96 sm:h-56 md:w-[480px] md:h-72';
+    }
+  };
+
+  const isVideoFile = selectedProject?.file_type.startsWith('video/');
+
   return (
     <div
       className={cn(
         'flex-grow flex flex-col',
-        selectedProject && mediaUrl
-          ? selectedProject.file_type.startsWith('video/')
-            ? 'pb-[24rem] sm:pb-[28rem] md:pb-[38rem]'
-            : 'pb-28'
-          : 'pb-0'
+        selectedProject && mediaUrl ? 'pb-28' : 'pb-0'
       )}
     >
       <div className="max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-6 flex-grow">
@@ -658,42 +672,89 @@ const Dashboard: React.FC<DashboardProps> = ({ user }) => {
         </div>
       </div>
 
-      {/* Fixed Bottom Player */}
+      {/* Floating Video Preview - positioned above the bottom bar */}
+      {selectedProject && mediaUrl && isVideoFile && (
+        <div className={cn(
+          "fixed z-40 bg-card border border-border rounded-lg shadow-xl overflow-hidden transition-all duration-200",
+          "bottom-28 right-4 sm:right-6",
+          getVideoPreviewSize()
+        )}>
+          {/* Size toggle buttons */}
+          <div className="absolute top-2 left-2 z-10 flex gap-1 bg-background/80 backdrop-blur-sm rounded-md p-1">
+            <button
+              onClick={() => setVideoSize('small')}
+              className={cn(
+                "px-2 py-0.5 text-xs rounded transition-colors",
+                videoSize === 'small' 
+                  ? "bg-primary text-primary-foreground" 
+                  : "hover:bg-muted text-muted-foreground"
+              )}
+            >
+              S
+            </button>
+            <button
+              onClick={() => setVideoSize('medium')}
+              className={cn(
+                "px-2 py-0.5 text-xs rounded transition-colors",
+                videoSize === 'medium' 
+                  ? "bg-primary text-primary-foreground" 
+                  : "hover:bg-muted text-muted-foreground"
+              )}
+            >
+              M
+            </button>
+            <button
+              onClick={() => setVideoSize('large')}
+              className={cn(
+                "px-2 py-0.5 text-xs rounded transition-colors",
+                videoSize === 'large' 
+                  ? "bg-primary text-primary-foreground" 
+                  : "hover:bg-muted text-muted-foreground"
+              )}
+            >
+              L
+            </button>
+          </div>
+          <video
+            ref={mediaRef as React.RefObject<HTMLVideoElement>}
+            src={mediaUrl}
+            playsInline
+            preload="metadata"
+            className="w-full h-full object-contain bg-black"
+            onTimeUpdate={(e) => setCurrentTime(e.currentTarget.currentTime)}
+          />
+        </div>
+      )}
+
+      {/* Fixed Bottom Player - consistent height for both audio and video */}
       {selectedProject && mediaUrl && (
         <div className="fixed bottom-0 left-0 right-0 z-50 bg-card border-t border-border shadow-lg">
           <div className="max-w-7xl mx-auto px-4 py-3">
-            <div className="flex flex-col gap-3 md:flex-row md:items-center md:gap-4">
-              <div className="flex items-center gap-3 md:w-64 md:shrink-0">
-              <div className="p-2 bg-primary/10 rounded-lg">
-                {selectedProject.file_type.startsWith('video/') 
-                  ? <FileVideo className="w-5 h-5 text-primary" /> 
-                  : <FileText className="w-5 h-5 text-primary" />
-                }
+            <div className="flex items-center gap-4">
+              {/* File info */}
+              <div className="flex items-center gap-3 shrink-0">
+                <div className="p-2 bg-primary/10 rounded-lg">
+                  {isVideoFile 
+                    ? <FileVideo className="w-5 h-5 text-primary" /> 
+                    : <FileText className="w-5 h-5 text-primary" />
+                  }
+                </div>
+                <div className="min-w-0 max-w-[120px] sm:max-w-[200px]">
+                  <p className="text-sm font-semibold text-foreground truncate">
+                    {selectedProject.file_name}
+                  </p>
+                  <button 
+                    onClick={() => setSelectedProjectId(null)} 
+                    className="text-xs text-muted-foreground hover:text-foreground"
+                  >
+                    Close Player
+                  </button>
+                </div>
               </div>
-              <div className="min-w-0">
-                <p className="text-sm font-semibold text-foreground truncate">
-                  {selectedProject.file_name}
-                </p>
-                <button 
-                  onClick={() => setSelectedProjectId(null)} 
-                  className="text-xs text-muted-foreground hover:text-foreground"
-                >
-                  Close Player
-                </button>
-              </div>
-            </div>
-              <div className="flex-1">
-                {selectedProject.file_type.startsWith('video/') ? (
-                  <video
-                    ref={mediaRef as React.RefObject<HTMLVideoElement>}
-                    src={mediaUrl}
-                    controls
-                    playsInline
-                    preload="metadata"
-                    className="w-full h-[240px] sm:h-[320px] md:h-[500px] rounded-md bg-muted object-contain"
-                    onTimeUpdate={(e) => setCurrentTime(e.currentTarget.currentTime)}
-                  />
-                ) : (
+
+              {/* Audio player - inline in bar */}
+              {!isVideoFile && (
+                <div className="flex-1">
                   <audio
                     ref={mediaRef as React.RefObject<HTMLAudioElement>}
                     src={mediaUrl}
@@ -701,8 +762,47 @@ const Dashboard: React.FC<DashboardProps> = ({ user }) => {
                     className="w-full"
                     onTimeUpdate={(e) => setCurrentTime(e.currentTarget.currentTime)}
                   />
-                )}
-              </div>
+                </div>
+              )}
+
+              {/* Video controls - separate since video is floating */}
+              {isVideoFile && (
+                <div className="flex-1 flex items-center gap-3">
+                  <button
+                    onClick={() => {
+                      if (mediaRef.current) {
+                        if (mediaRef.current.paused) {
+                          mediaRef.current.play();
+                        } else {
+                          mediaRef.current.pause();
+                        }
+                      }
+                    }}
+                    className="p-2 rounded-full bg-primary/10 hover:bg-primary/20 transition-colors"
+                  >
+                    <PlayCircle className="w-5 h-5 text-primary" />
+                  </button>
+                  <div className="flex-1">
+                    <input
+                      type="range"
+                      min="0"
+                      max={mediaRef.current?.duration || 100}
+                      value={currentTime}
+                      onChange={(e) => {
+                        const time = parseFloat(e.target.value);
+                        if (mediaRef.current) {
+                          mediaRef.current.currentTime = time;
+                        }
+                        setCurrentTime(time);
+                      }}
+                      className="w-full h-2 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
+                    />
+                  </div>
+                  <span className="text-xs text-muted-foreground font-mono min-w-[45px]">
+                    {formatTime(currentTime)}
+                  </span>
+                </div>
+              )}
             </div>
           </div>
         </div>
