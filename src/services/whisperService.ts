@@ -24,11 +24,13 @@ const withTimeout = async <T>(
 
 // Web Worker code for Whisper transcription - using classic worker syntax with importScripts
 const WORKER_CODE = `
-// Prefer locally-hosted copy (more reliable than a CDN inside workers)
+// Use locally-hosted copy only (no CDN fallback for security)
+// The local file at /vendor/transformers.min.js must be kept up-to-date
 try {
   importScripts(self.location.origin + '/vendor/transformers.min.js');
 } catch (e) {
-  importScripts('https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2/dist/transformers.min.js');
+  self.postMessage({ status: 'error', error: 'Failed to load local Transformers library. Please ensure /vendor/transformers.min.js exists.' });
+  throw new Error('Local Transformers library not found');
 }
 
 // Access the library from global scope (classic workers)
