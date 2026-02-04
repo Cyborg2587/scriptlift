@@ -113,6 +113,19 @@ export const updateProject = async (
   if (error) throw error;
 };
 
+// Rename a project
+export const renameProject = async (
+  projectId: string,
+  newName: string
+): Promise<void> => {
+  const { error } = await supabase
+    .from('projects')
+    .update({ file_name: newName })
+    .eq('id', projectId);
+
+  if (error) throw error;
+};
+
 // Delete a project
 export const deleteProject = async (project: Project): Promise<void> => {
   // Delete file from storage if exists
