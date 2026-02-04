@@ -36,6 +36,7 @@ export interface Project {
   status: ProjectStatus;
   transcription: TranscriptionResult | null;
   speaker_map: Record<string, string>;
+  speaker_colors: Record<string, string>;
   created_at: string;
   updated_at: string;
 }

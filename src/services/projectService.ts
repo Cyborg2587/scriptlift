@@ -12,6 +12,7 @@ const transformProject = (row: any): Project => ({
   status: row.status as ProjectStatus,
   transcription: row.transcription as TranscriptionResult | null,
   speaker_map: (row.speaker_map as Record<string, string>) || {},
+  speaker_colors: (row.speaker_colors as Record<string, string>) || {},
   created_at: row.created_at,
   updated_at: row.updated_at,
 });
@@ -101,6 +102,7 @@ export const updateProject = async (
     status?: string;
     transcription?: TranscriptionResult | null;
     speaker_map?: Record<string, string>;
+    speaker_colors?: Record<string, string>;
   }
 ): Promise<void> => {
   const { error } = await supabase
