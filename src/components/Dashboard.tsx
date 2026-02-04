@@ -2,7 +2,8 @@ import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { User, Project, ProjectStatus, TranscriptionResult } from '@/types';
 import { 
   UploadCloud, Clock, FileText, FileVideo, Download, Loader2, 
-  Users, Mic, PlayCircle, Trash2, CheckCircle, AlertCircle, Cloud, RefreshCw
+  Users, Mic, PlayCircle, Trash2, CheckCircle, AlertCircle, Cloud, RefreshCw,
+  Volume2, VolumeX, Pause
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -12,6 +13,8 @@ import { Label } from '@/components/ui/label';
 import { StorageMeter } from '@/components/StorageMeter';
 import { SpeakerColorPicker, SpeakerColorId, getDefaultColorForSpeaker, getColorById } from '@/components/SpeakerColorPicker';
 import { SpeakerSelector } from '@/components/SpeakerSelector';
+import { AudioRecorder } from '@/components/AudioRecorder';
+import { ProjectNameEditor } from '@/components/ProjectNameEditor';
 import { downloadPdf, downloadTxt, downloadDoc } from '@/services/exportService';
 import { transcribeWithWhisper } from '@/services/whisperService';
 import { cn } from '@/lib/utils';
@@ -21,7 +24,8 @@ import {
   updateProject, 
   deleteProject as deleteProjectService,
   uploadFileToStorage, 
-  downloadFile 
+  downloadFile,
+  renameProject
 } from '@/services/projectService';
 
 const STORAGE_LIMIT_BYTES = 1024 * 1024 * 1024; // 1GB
@@ -46,6 +50,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user }) => {
   const [loading, setLoading] = useState(false);
   const [projectErrors, setProjectErrors] = useState<Record<string, string>>({});
   const [videoSize, setVideoSize] = useState<VideoSize>('large');
+  const [isMuted, setIsMuted] = useState(false);
+  const [isPlaying, setIsPlaying] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const mediaRef = useRef<HTMLMediaElement>(null);
@@ -283,6 +289,47 @@ const Dashboard: React.FC<DashboardProps> = ({ user }) => {
     }
   };
 
+  const handleRecordingComplete = async (file: File) => {
+    await handleIncomingFiles(createFileList([file]));
+  };
+
+  const handleRenameProject = async (projectId: string, newName: string) => {
+    try {
+      await renameProject(projectId, newName);
+      setProjects(prev => prev.map(p => 
+        p.id === projectId ? { ...p, file_name: newName } : p
+      ));
+    } catch (error) {
+      console.error('Failed to rename project:', error);
+    }
+  };
+
+  const toggleMute = () => {
+    if (mediaRef.current) {
+      mediaRef.current.muted = !isMuted;
+      setIsMuted(!isMuted);
+    }
+  };
+
+  const togglePlayPause = () => {
+    if (mediaRef.current) {
+      if (mediaRef.current.paused) {
+        mediaRef.current.play();
+        setIsPlaying(true);
+      } else {
+        mediaRef.current.pause();
+        setIsPlaying(false);
+      }
+    }
+  };
+
+  // Helper to create FileList from array
+  const createFileList = (files: File[]): FileList => {
+    const dataTransfer = new DataTransfer();
+    files.forEach(file => dataTransfer.items.add(file));
+    return dataTransfer.files;
+  };
+
   const handleExport = (type: 'pdf' | 'txt' | 'doc') => {
     if (!selectedProject?.transcription) return;
     if (type === 'pdf') {
@@ -437,16 +484,15 @@ const Dashboard: React.FC<DashboardProps> = ({ user }) => {
           <div className="lg:col-span-4 space-y-6 overflow-y-auto">
             {/* Upload Zone */}
             <Card
-              className={`border-2 border-dashed cursor-pointer transition-all ${
+              className={`border-2 border-dashed transition-all ${
                 isDragging ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/50'
               }`}
-              onClick={() => fileInputRef.current?.click()}
               onDragEnter={handleDragEnter}
               onDragLeave={handleDragLeave}
               onDragOver={(e) => e.preventDefault()}
               onDrop={handleDrop}
             >
-              <CardContent className="py-8 text-center">
+              <CardContent className="py-6">
                 <input 
                   type="file" 
                   multiple 
@@ -455,22 +501,41 @@ const Dashboard: React.FC<DashboardProps> = ({ user }) => {
                   accept="audio/*,video/*" 
                   className="hidden" 
                 />
-                <div className="flex flex-col items-center gap-3">
-                  <div className={`p-3 rounded-full ${isProcessingQueue ? 'bg-warning/10' : 'bg-primary/10'}`}>
-                    {isProcessingQueue ? (
-                      <Loader2 className="w-6 h-6 text-warning animate-spin" />
-                    ) : (
-                      <UploadCloud className="w-6 h-6 text-primary" />
-                    )}
+                <div className="flex flex-col gap-4">
+                  {/* Upload button */}
+                  <div 
+                    className="flex flex-col items-center gap-3 cursor-pointer"
+                    onClick={() => fileInputRef.current?.click()}
+                  >
+                    <div className={`p-3 rounded-full ${isProcessingQueue ? 'bg-warning/10' : 'bg-primary/10'}`}>
+                      {isProcessingQueue ? (
+                        <Loader2 className="w-6 h-6 text-warning animate-spin" />
+                      ) : (
+                        <UploadCloud className="w-6 h-6 text-primary" />
+                      )}
+                    </div>
+                    <div className="text-center">
+                      <h3 className="font-semibold text-foreground">
+                        {isDragging ? 'Drop files here' : 'Upload Files'}
+                      </h3>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        {progressText || 'Drag & Drop or click to upload audio/video'}
+                      </p>
+                    </div>
                   </div>
-                  <div>
-                    <h3 className="font-semibold text-foreground">
-                      {isDragging ? 'Drop files here' : 'Upload Files'}
-                    </h3>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      {progressText || 'Drag & Drop or click to upload audio/video'}
-                    </p>
+
+                  {/* Divider */}
+                  <div className="flex items-center gap-3">
+                    <div className="flex-1 h-px bg-border" />
+                    <span className="text-xs text-muted-foreground">or</span>
+                    <div className="flex-1 h-px bg-border" />
                   </div>
+
+                  {/* Recording button */}
+                  <AudioRecorder 
+                    onRecordingComplete={handleRecordingComplete}
+                    disabled={isProcessingQueue}
+                  />
                 </div>
               </CardContent>
             </Card>
@@ -507,11 +572,13 @@ const Dashboard: React.FC<DashboardProps> = ({ user }) => {
                         }`}
                       >
                         <div className="min-w-0 flex-grow pr-4">
-                          <h4 className={`text-sm font-medium truncate ${
-                            selectedProjectId === p.id ? 'text-primary' : 'text-foreground'
-                          }`}>
-                            {p.file_name}
-                          </h4>
+                          <ProjectNameEditor
+                            name={p.file_name}
+                            onSave={(newName) => handleRenameProject(p.id, newName)}
+                            className={`text-sm font-medium ${
+                              selectedProjectId === p.id ? 'text-primary' : 'text-foreground'
+                            }`}
+                          />
                           <div className="flex items-center gap-2 mt-1">
                             {p.status === ProjectStatus.QUEUED && (
                               <span className="text-xs bg-muted px-1.5 py-0.5 rounded flex items-center gap-1">
@@ -774,6 +841,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user }) => {
             preload="metadata"
             className="w-full h-full object-contain bg-black"
             onTimeUpdate={(e) => setCurrentTime(e.currentTarget.currentTime)}
+            onPlay={() => setIsPlaying(true)}
+            onPause={() => setIsPlaying(false)}
           />
         </div>
       )}
@@ -804,35 +873,18 @@ const Dashboard: React.FC<DashboardProps> = ({ user }) => {
                 </div>
               </div>
 
-              {/* Audio player - inline in bar */}
+              {/* Audio player - custom controls with mute */}
               {!isVideoFile && (
-                <div className="flex-1">
-                  <audio
-                    ref={mediaRef as React.RefObject<HTMLAudioElement>}
-                    src={mediaUrl}
-                    controls
-                    className="w-full"
-                    onTimeUpdate={(e) => setCurrentTime(e.currentTarget.currentTime)}
-                  />
-                </div>
-              )}
-
-              {/* Video controls - separate since video is floating */}
-              {isVideoFile && (
                 <div className="flex-1 flex items-center gap-3">
                   <button
-                    onClick={() => {
-                      if (mediaRef.current) {
-                        if (mediaRef.current.paused) {
-                          mediaRef.current.play();
-                        } else {
-                          mediaRef.current.pause();
-                        }
-                      }
-                    }}
+                    onClick={togglePlayPause}
                     className="p-2 rounded-full bg-primary/10 hover:bg-primary/20 transition-colors"
                   >
-                    <PlayCircle className="w-5 h-5 text-primary" />
+                    {isPlaying ? (
+                      <Pause className="w-5 h-5 text-primary" />
+                    ) : (
+                      <PlayCircle className="w-5 h-5 text-primary" />
+                    )}
                   </button>
                   <div className="flex-1">
                     <input
@@ -853,6 +905,71 @@ const Dashboard: React.FC<DashboardProps> = ({ user }) => {
                   <span className="text-xs text-muted-foreground font-mono min-w-[45px]">
                     {formatTime(currentTime)}
                   </span>
+                  <button
+                    onClick={toggleMute}
+                    className="p-2 rounded-full hover:bg-muted transition-colors"
+                    title={isMuted ? "Unmute" : "Mute"}
+                  >
+                    {isMuted ? (
+                      <VolumeX className="w-5 h-5 text-muted-foreground" />
+                    ) : (
+                      <Volume2 className="w-5 h-5 text-muted-foreground" />
+                    )}
+                  </button>
+                  <audio
+                    ref={mediaRef as React.RefObject<HTMLAudioElement>}
+                    src={mediaUrl}
+                    className="hidden"
+                    onTimeUpdate={(e) => setCurrentTime(e.currentTarget.currentTime)}
+                    onPlay={() => setIsPlaying(true)}
+                    onPause={() => setIsPlaying(false)}
+                  />
+                </div>
+              )}
+
+              {/* Video controls - separate since video is floating */}
+              {isVideoFile && (
+                <div className="flex-1 flex items-center gap-3">
+                  <button
+                    onClick={togglePlayPause}
+                    className="p-2 rounded-full bg-primary/10 hover:bg-primary/20 transition-colors"
+                  >
+                    {isPlaying ? (
+                      <Pause className="w-5 h-5 text-primary" />
+                    ) : (
+                      <PlayCircle className="w-5 h-5 text-primary" />
+                    )}
+                  </button>
+                  <div className="flex-1">
+                    <input
+                      type="range"
+                      min="0"
+                      max={mediaRef.current?.duration || 100}
+                      value={currentTime}
+                      onChange={(e) => {
+                        const time = parseFloat(e.target.value);
+                        if (mediaRef.current) {
+                          mediaRef.current.currentTime = time;
+                        }
+                        setCurrentTime(time);
+                      }}
+                      className="w-full h-2 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
+                    />
+                  </div>
+                  <span className="text-xs text-muted-foreground font-mono min-w-[45px]">
+                    {formatTime(currentTime)}
+                  </span>
+                  <button
+                    onClick={toggleMute}
+                    className="p-2 rounded-full hover:bg-muted transition-colors"
+                    title={isMuted ? "Unmute" : "Mute"}
+                  >
+                    {isMuted ? (
+                      <VolumeX className="w-5 h-5 text-muted-foreground" />
+                    ) : (
+                      <Volume2 className="w-5 h-5 text-muted-foreground" />
+                    )}
+                  </button>
                 </div>
               )}
             </div>
