@@ -1,4 +1,5 @@
 import React from 'react';
+import { ChevronDown } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -31,14 +32,15 @@ export const SpeakerSelector: React.FC<SpeakerSelectorProps> = ({
       <DropdownMenuTrigger asChild>
         <span
           className={cn(
-            'text-xs font-bold px-1.5 py-0.5 rounded truncate max-w-[80px] cursor-pointer',
-            'hover:opacity-80 transition-opacity',
+            'inline-flex items-center gap-0.5 text-xs font-bold px-1.5 py-0.5 rounded cursor-pointer',
+            'hover:opacity-80 transition-opacity group',
             currentColor.bg,
             currentColor.text
           )}
           title="Click to change speaker"
         >
-          {displayName}
+          <span className="truncate max-w-[60px]">{displayName}</span>
+          <ChevronDown className="w-3 h-3 shrink-0 opacity-70 group-hover:opacity-100" />
         </span>
       </DropdownMenuTrigger>
       <DropdownMenuContent

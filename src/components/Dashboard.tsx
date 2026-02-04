@@ -399,11 +399,11 @@ const Dashboard: React.FC<DashboardProps> = ({ user }) => {
   return (
     <div
       className={cn(
-        'flex-grow flex flex-col',
+        'flex-grow flex flex-col min-h-0',
         selectedProject && mediaUrl ? 'pb-28' : 'pb-0'
       )}
     >
-      <div className="max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-6 flex-grow">
+      <div className="max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-6 flex-grow flex flex-col min-h-0">
         {/* Header */}
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
           <div>
@@ -432,9 +432,9 @@ const Dashboard: React.FC<DashboardProps> = ({ user }) => {
           )}
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 flex-grow">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 flex-grow min-h-0">
           {/* Left Column */}
-          <div className="lg:col-span-4 space-y-6">
+          <div className="lg:col-span-4 space-y-6 overflow-y-auto">
             {/* Upload Zone */}
             <Card
               className={`border-2 border-dashed cursor-pointer transition-all ${
@@ -622,8 +622,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user }) => {
           </div>
 
           {/* Right Column - Transcript Viewer */}
-          <div className="lg:col-span-8">
-            <Card className="h-[600px] flex flex-col overflow-hidden">
+          <div className="lg:col-span-8 flex flex-col">
+            <Card className="flex-grow flex flex-col overflow-hidden min-h-[400px]">
               <CardHeader className="bg-muted/50 py-3 shrink-0">
                 <CardTitle className="text-sm flex justify-between items-center">
                   <span>
