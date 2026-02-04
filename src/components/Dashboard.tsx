@@ -10,6 +10,8 @@ import { Switch } from '@/components/ui/switch';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { StorageMeter } from '@/components/StorageMeter';
+import { SpeakerColorPicker, SpeakerColorId, getDefaultColorForSpeaker, getColorById } from '@/components/SpeakerColorPicker';
+import { SpeakerSelector } from '@/components/SpeakerSelector';
 import { downloadPdf, downloadTxt, downloadDoc } from '@/services/exportService';
 import { transcribeWithWhisper } from '@/services/whisperService';
 import { cn } from '@/lib/utils';
@@ -301,6 +303,45 @@ const Dashboard: React.FC<DashboardProps> = ({ user }) => {
     await updateProject(selectedProject.id, { speaker_map: updatedMap });
   };
 
+  // Get speaker colors from the project or use defaults
+  const speakerColors = useMemo(() => {
+    const colors: Record<string, SpeakerColorId> = {};
+    uniqueSpeakers.forEach(speakerId => {
+      const storedColors = selectedProject?.speaker_colors || {};
+      colors[speakerId] = (storedColors[speakerId] as SpeakerColorId) || getDefaultColorForSpeaker(speakerId);
+    });
+    return colors;
+  }, [selectedProject, uniqueSpeakers]);
+
+  const updateSpeakerColor = async (speakerId: string, colorId: SpeakerColorId) => {
+    if (!selectedProject) return;
+    const currentColors = selectedProject.speaker_colors || {};
+    const updatedColors = { ...currentColors, [speakerId]: colorId };
+    
+    setProjects(prev => prev.map(p => 
+      p.id === selectedProject.id ? { ...p, speaker_colors: updatedColors } : p
+    ));
+    await updateProject(selectedProject.id, { speaker_colors: updatedColors });
+  };
+
+  const updateSegmentSpeaker = async (segmentIndex: number, newSpeaker: string) => {
+    if (!selectedProject?.transcription) return;
+    
+    const updatedSegments = selectedProject.transcription.segments.map((seg, i) => 
+      i === segmentIndex ? { ...seg, speaker: newSpeaker } : seg
+    );
+    
+    const updatedTranscription: TranscriptionResult = {
+      ...selectedProject.transcription,
+      segments: updatedSegments,
+    };
+    
+    setProjects(prev => prev.map(p => 
+      p.id === selectedProject.id ? { ...p, transcription: updatedTranscription } : p
+    ));
+    await updateProject(selectedProject.id, { transcription: updatedTranscription });
+  };
+
   const formatTime = (seconds: number) => {
     const m = Math.floor(seconds / 60);
     const s = Math.floor(seconds % 60);
@@ -552,23 +593,27 @@ const Dashboard: React.FC<DashboardProps> = ({ user }) => {
                       <Label className="text-xs text-muted-foreground uppercase tracking-wider">
                         Identify Speakers
                       </Label>
-                      {uniqueSpeakers.map((speakerId) => (
-                        <div key={speakerId} className="flex items-center gap-2">
-                          <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center shrink-0">
-                            <Mic className="w-4 h-4 text-muted-foreground" />
-                          </div>
-                          <div className="flex-grow">
-                            <Label className="text-xs text-muted-foreground">{speakerId}</Label>
-                            <Input 
-                              type="text" 
-                              placeholder="Enter Name..." 
-                              value={selectedProject.speaker_map[speakerId] || ''} 
-                              onChange={(e) => updateSpeakerName(speakerId, e.target.value)} 
-                              className="h-8 text-sm"
+                      {uniqueSpeakers.map((speakerId) => {
+                        const color = speakerColors[speakerId];
+                        return (
+                          <div key={speakerId} className="flex items-center gap-2">
+                            <SpeakerColorPicker
+                              selectedColor={color}
+                              onColorChange={(colorId) => updateSpeakerColor(speakerId, colorId)}
                             />
+                            <div className="flex-grow">
+                              <Label className="text-xs text-muted-foreground">{speakerId}</Label>
+                              <Input 
+                                type="text" 
+                                placeholder="Enter Name..." 
+                                value={selectedProject.speaker_map[speakerId] || ''} 
+                                onChange={(e) => updateSpeakerName(speakerId, e.target.value)} 
+                                className="h-8 text-sm"
+                              />
+                            </div>
                           </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   )}
                 </CardContent>
@@ -655,9 +700,13 @@ const Dashboard: React.FC<DashboardProps> = ({ user }) => {
                           </div>
                         )}
                         {showSpeakers && (
-                          <span className="text-xs font-bold text-primary bg-primary/10 px-1.5 py-0.5 rounded truncate max-w-[80px]">
-                            {displayName}
-                          </span>
+                          <SpeakerSelector
+                            currentSpeaker={segment.speaker}
+                            speakers={uniqueSpeakers}
+                            speakerMap={selectedProject.speaker_map}
+                            speakerColors={speakerColors}
+                            onSpeakerChange={(newSpeaker) => updateSegmentSpeaker(index, newSpeaker)}
+                          />
                         )}
                       </div>
                       <p className={`text-sm leading-relaxed ${

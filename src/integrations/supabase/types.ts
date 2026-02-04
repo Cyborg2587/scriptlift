@@ -48,6 +48,7 @@ export type Database = {
           file_size: number | null
           file_type: string
           id: string
+          speaker_colors: Json | null
           speaker_map: Json | null
           status: string
           storage_path: string | null
@@ -61,6 +62,7 @@ export type Database = {
           file_size?: number | null
           file_type: string
           id?: string
+          speaker_colors?: Json | null
           speaker_map?: Json | null
           status?: string
           storage_path?: string | null
@@ -74,6 +76,7 @@ export type Database = {
           file_size?: number | null
           file_type?: string
           id?: string
+          speaker_colors?: Json | null
           speaker_map?: Json | null
           status?: string
           storage_path?: string | null
