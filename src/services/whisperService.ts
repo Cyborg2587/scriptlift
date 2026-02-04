@@ -1,4 +1,5 @@
 import { TranscriptionSegment } from "@/types";
+import { diarizeSegments } from "./diarizationService";
 
 const TARGET_SAMPLE_RATE = 16000;
 
@@ -272,7 +273,7 @@ export const transcribeWithWhisper = async (
     const audioSeconds = audioData.length / TARGET_SAMPLE_RATE;
     
     // Run transcription
-    return new Promise((resolve, reject) => {
+    const rawSegments = await new Promise<TranscriptionSegment[]>((resolve, reject) => {
       // Dynamic timeout: keep long-form audio from being killed prematurely,
       // while still preventing infinite hangs.
       const timeoutMs = Math.min(
@@ -307,7 +308,7 @@ export const transcribeWithWhisper = async (
             const segments: TranscriptionSegment[] = chunks.map((chunk: any) => ({
               timestamp: Array.isArray(chunk.timestamp) ? chunk.timestamp[0] : chunk.timestamp || 0,
               text: (chunk.text || '').trim(),
-              speaker: "Speaker 1"
+              speaker: "Speaker 1" // Placeholder - will be updated by diarization
             }));
             resolve(segments);
           }
@@ -323,6 +324,11 @@ export const transcribeWithWhisper = async (
       // Transfer the audio buffer to the worker (more efficient)
       currentWorker.postMessage({ type: 'transcribe', audio: audioData }, [audioData.buffer]);
     });
+
+    // Perform speaker diarization using AI
+    const diarizedSegments = await diarizeSegments(rawSegments, onProgress);
+    
+    return diarizedSegments;
   } catch (error: any) {
     // Reset worker on any error so next attempt starts fresh
     resetWorker();
