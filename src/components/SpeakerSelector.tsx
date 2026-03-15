@@ -32,14 +32,14 @@ export const SpeakerSelector: React.FC<SpeakerSelectorProps> = ({
       <DropdownMenuTrigger asChild>
         <span
           className={cn(
-            'inline-flex items-center gap-0.5 text-xs font-bold px-1.5 py-0.5 rounded cursor-pointer',
+            'inline-flex items-center gap-0.5 text-xs font-bold px-1.5 py-0.5 rounded cursor-pointer max-w-[120px]',
             'hover:opacity-80 transition-opacity group',
             currentColor.bg,
             currentColor.text
           )}
           title="Click to change speaker"
         >
-          <span className="truncate max-w-[60px]">{displayName}</span>
+          <span className="break-words">{displayName}</span>
           <ChevronDown className="w-3 h-3 shrink-0 opacity-70 group-hover:opacity-100" />
         </span>
       </DropdownMenuTrigger>
