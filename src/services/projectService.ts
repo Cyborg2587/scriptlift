@@ -17,44 +17,59 @@ const transformProject = (row: any): Project => ({
   updated_at: row.updated_at,
 });
 
-// Upload file to storage
+// Get a presigned URL from the R2 edge function
+const getPresignedUrl = async (
+  action: "upload" | "download" | "delete",
+  key: string,
+  contentType?: string
+): Promise<string> => {
+  const { data, error } = await supabase.functions.invoke("r2-presign", {
+    body: { action, key, contentType },
+  });
+  if (error) throw error;
+  if (data?.error) throw new Error(data.error);
+  return data.url;
+};
+
+// Upload file to R2
 export const uploadFileToStorage = async (file: File, userId: string): Promise<string> => {
   const fileId = crypto.randomUUID();
   const sanitizedName = file.name.replace(/[^a-zA-Z0-9.]/g, '_');
   const filePath = `${userId}/${fileId}_${sanitizedName}`;
-  
-  const { error } = await supabase.storage
-    .from('media-files')
-    .upload(filePath, file, { upsert: false });
 
-  if (error) throw error;
+  const presignedUrl = await getPresignedUrl("upload", filePath, file.type);
+
+  const response = await fetch(presignedUrl, {
+    method: "PUT",
+    body: file,
+    headers: { "Content-Type": file.type },
+  });
+
+  if (!response.ok) {
+    throw new Error(`Upload failed: ${response.status} ${response.statusText}`);
+  }
+
   return filePath;
 };
 
-// Get signed URL for file
-export const getFileUrl = async (storagePath: string): Promise<string | null> => {
-  const { data, error } = await supabase.storage
-    .from('media-files')
-    .createSignedUrl(storagePath, 3600); // 1 hour expiry
-
-  if (error) {
-    console.error('Error getting file URL:', error);
+// Download file from R2
+export const downloadFile = async (storagePath: string): Promise<Blob | null> => {
+  try {
+    const presignedUrl = await getPresignedUrl("download", storagePath);
+    const response = await fetch(presignedUrl);
+    if (!response.ok) return null;
+    return await response.blob();
+  } catch (error) {
+    console.error("Error downloading file:", error);
     return null;
   }
-  return data.signedUrl;
 };
 
-// Download file from storage
-export const downloadFile = async (storagePath: string): Promise<Blob | null> => {
-  const { data, error } = await supabase.storage
-    .from('media-files')
-    .download(storagePath);
-
-  if (error) {
-    console.error('Error downloading file:', error);
-    return null;
-  }
-  return data;
+// Delete file from R2
+const deleteFileFromStorage = async (storagePath: string): Promise<void> => {
+  await supabase.functions.invoke("r2-presign", {
+    body: { action: "delete", key: storagePath },
+  });
 };
 
 // Create a new project
@@ -128,11 +143,9 @@ export const renameProject = async (
 
 // Delete a project
 export const deleteProject = async (project: Project): Promise<void> => {
-  // Delete file from storage if exists
+  // Delete file from R2 if exists
   if (project.storage_path) {
-    await supabase.storage
-      .from('media-files')
-      .remove([project.storage_path]);
+    await deleteFileFromStorage(project.storage_path);
   }
 
   // Delete project record
