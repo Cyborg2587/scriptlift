@@ -356,6 +356,32 @@ const Dashboard: React.FC<DashboardProps> = ({ user }) => {
   };
 
   // Get speaker colors from the project or use defaults
+  // Merge consecutive segments from the same speaker into paragraphs
+  const mergedSegments = useMemo(() => {
+    if (!selectedProject?.transcription?.segments) return [];
+    const segments = selectedProject.transcription.segments;
+    const groups: { speaker: string; startTime: number; endTime: number; text: string; segmentIndices: number[] }[] = [];
+
+    for (let i = 0; i < segments.length; i++) {
+      const seg = segments[i];
+      const lastGroup = groups[groups.length - 1];
+      if (lastGroup && lastGroup.speaker === seg.speaker) {
+        lastGroup.text += ' ' + seg.text;
+        lastGroup.endTime = segments[i + 1]?.timestamp ?? seg.timestamp + 5;
+        lastGroup.segmentIndices.push(i);
+      } else {
+        groups.push({
+          speaker: seg.speaker,
+          startTime: seg.timestamp,
+          endTime: segments[i + 1]?.timestamp ?? seg.timestamp + 5,
+          text: seg.text,
+          segmentIndices: [i],
+        });
+      }
+    }
+    return groups;
+  }, [selectedProject?.transcription?.segments]);
+
   const speakerColors = useMemo(() => {
     const colors: Record<string, SpeakerColorId> = {};
     uniqueSpeakers.forEach(speakerId => {
@@ -677,8 +703,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user }) => {
                               <Label className="text-xs text-muted-foreground">{speakerId}</Label>
                               <Input 
                                 type="text" 
-                                placeholder="Enter Name..." 
-                                value={selectedProject.speaker_map[speakerId] || ''} 
+                                placeholder="Enter Name..."
+                                value={selectedProject.speaker_map[speakerId] ?? speakerId}
                                 onChange={(e) => updateSpeakerName(speakerId, e.target.value)} 
                                 className="h-8 text-sm"
                               />
@@ -744,19 +770,17 @@ const Dashboard: React.FC<DashboardProps> = ({ user }) => {
                   </div>
                 )}
 
-                {selectedProject?.transcription?.segments.map((segment, index) => {
-                  const displayName = selectedProject.speaker_map[segment.speaker] || segment.speaker;
-                  const nextSeg = selectedProject.transcription!.segments[index + 1];
-                  const effectiveEnd = nextSeg ? nextSeg.timestamp : segment.timestamp + 5;
-                  const isActive = currentTime >= segment.timestamp && currentTime < effectiveEnd;
-                  
+                {mergedSegments.map((group, groupIndex) => {
+                  const displayName = selectedProject!.speaker_map[group.speaker] || group.speaker;
+                  const isActive = currentTime >= group.startTime && currentTime < group.endTime;
+
                   return (
-                    <div 
-                      key={index} 
-                      onClick={() => jumpToTime(segment.timestamp)}
+                    <div
+                      key={groupIndex}
+                      onClick={() => jumpToTime(group.startTime)}
                       className={`flex gap-3 p-3 rounded-lg transition-all cursor-pointer border-l-4 ${
-                        isActive 
-                          ? 'bg-primary/5 border-primary shadow-sm' 
+                        isActive
+                          ? 'bg-primary/5 border-primary shadow-sm'
                           : 'hover:bg-muted/50 border-transparent'
                       }`}
                     >
@@ -767,24 +791,26 @@ const Dashboard: React.FC<DashboardProps> = ({ user }) => {
                           }`}>
                             {isActive && <PlayCircle className="w-3 h-3 animate-pulse" />}
                             <span className="text-xs font-mono font-medium">
-                              {formatTime(segment.timestamp)}
+                              {formatTime(group.startTime)} – {formatTime(group.endTime)}
                             </span>
                           </div>
                         )}
                         {showSpeakers && (
                           <SpeakerSelector
-                            currentSpeaker={segment.speaker}
+                            currentSpeaker={group.speaker}
                             speakers={uniqueSpeakers}
-                            speakerMap={selectedProject.speaker_map}
+                            speakerMap={selectedProject!.speaker_map}
                             speakerColors={speakerColors}
-                            onSpeakerChange={(newSpeaker) => updateSegmentSpeaker(index, newSpeaker)}
+                            onSpeakerChange={(newSpeaker) => {
+                              group.segmentIndices.forEach(i => updateSegmentSpeaker(i, newSpeaker));
+                            }}
                           />
                         )}
                       </div>
                       <p className={`text-sm leading-relaxed ${
                         isActive ? 'text-foreground font-medium' : 'text-muted-foreground'
                       }`}>
-                        {segment.text}
+                        {group.text}
                       </p>
                     </div>
                   );
