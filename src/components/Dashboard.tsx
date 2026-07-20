@@ -177,9 +177,9 @@ const Dashboard: React.FC<DashboardProps> = ({ user }) => {
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
       try {
-        const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB — Supabase free tier limit
+        const MAX_FILE_SIZE = 300 * 1024 * 1024; // 300MB
         if (file.size > MAX_FILE_SIZE) {
-          alert(`${file.name} is ${(file.size / 1024 / 1024).toFixed(0)}MB — max upload size is 50MB on the free plan.`);
+          alert(`${file.name} is ${(file.size / 1024 / 1024).toFixed(0)}MB — max upload size is 300MB.`);
           continue;
         }
         if (runningUsedBytes + file.size > STORAGE_LIMIT_BYTES) {
